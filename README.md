@@ -5,8 +5,8 @@ The project is a result of joint efforts put in by the Collaborators as mentione
 ## Analysis Plan
 With the data given and additional data on monthly air traffic, weather and seasons, the following questions
 will be adressed by our analysis:
-### How can scheduling be made the most efficient? We plan to suggest ways to enhance the quality and
-efficiency of scheduling training sessions by gauging patterns in the efficiency of instructors, duration between
+### How can scheduling be made the most efficient? 
+We plan to suggest ways to enhance the quality and efficiency of scheduling training sessions by gauging patterns in the efficiency of instructors, duration between
 two sessions, the density of student enrollment every month, and student performance per season. The
 efficiency of instructors is assessed based on the average number of exercises students completed while being
 trained by each instructor. The density of student enrollment was estimated using the number of sessions that
