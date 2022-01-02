@@ -1,0 +1,281 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r, echo=FALSE, warning=FALSE, results=FALSE, message=FALSE}
+#This is the initial data processing code that Prof. Damouras gave us. The only part of this block that was changed by Alec was filtering out all data points with no duration data.
+library(tidyverse)
+rm(list = ls())
+
+raw_data = NULL
+for( i in 1:17){
+  tmp = readxl::read_xlsx( "data/STAA57 Initial Data.xlsx", skip = 1, sheet = i, 
+                                     col_names =  paste( "X", 1:12, sep="" ) ) %>% 
+    mutate( Instructor_ID = i,
+            PPL = X1,
+            X1 = replace( X1, !str_detect(X1, "Student"), NA ),
+            PPL = zoo::na.locf( PPL ),
+            X1 = zoo::na.locf(X1) )
+  raw_data = bind_rows( raw_data, tmp )
+}
+rm(tmp,i)
+
+names( raw_data  ) = c( "Student", "Year", "Month", "Day", "Aircraft", "LF_dual", 
+"LF_solo", "Instrument_AC",  "Instrument_Sim", "CC_dual", "CC_solo", "Exercises",
+"Instructor_ID", "Licence")
+
+head(raw_data)
+
+raw_data %>%
+  filter( !is.na(Year), Year != "Year",
+          Exercises != "*NO DATA") %>% 
+  mutate_at( .vars = c(2:4), .funs = as.integer ) %>% 
+  mutate_at( .vars = c(6:11), .funs = as.numeric ) %>% 
+  mutate( Aircraft = str_to_upper(Aircraft),
+          Aircraft = replace( Aircraft, str_detect(Aircraft, "GROUND"), "GROUND"),
+          Aircraft = replace_na( Aircraft, "NA"),
+          Other = ifelse( str_detect(Aircraft,"GROUND|NA"), -1, NA ),
+          Student_ID = as.numeric( factor( paste( Student, Instructor_ID) ) ), 
+          Session_ID = row_number() ) %>% 
+  gather( key = "Training_Type", value = "Duration", 6:11, Other) %>% 
+  filter( !is.na(Duration) ) %>% 
+  mutate( Duration  = na_if(Duration, -1),
+          Aircraft = na_if(Aircraft, "NA")) %>% 
+  select( Instructor_ID, Student_ID, Session_ID, Year, Month, Day, 
+          Aircraft, Duration, Training_Type, Exercises, Licence ) %>% 
+          filter(! is.na(Duration)) -> clean_data
+
+clean_data %>% 
+  distinct( Session_ID, .keep_all = T) %>% 
+  # split the exercises string into a "list" column w str_split()
+  mutate( Exercises = str_split(Exercises, ",") ) %>%  
+  # and expand list contents into multiple rows w/ unnest()
+  unnest( Exercises)
+  
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+#Starting here, this is my own code.
+
+# This for loop iterates through each training session's year data. If the year is listed below 2015, it replaces the year with the year of the entries above and below it (assuming they match, but there have been no cases where they didn't in our data sets).
+# This works, as by this point in the processing, sessions are sorted by date for each instructor, then by each student.
+for (i in 2:nrow(clean_data)-1){
+  if (clean_data[i,4] < 2015 && clean_data[i-1,4] == clean_data[i+1,4]){
+    clean_data[i,4] = clean_data[i-1,4]
+  }
+}
+
+
+
+#This loop does the same as the one above but with replacing month values > 12 with the month of an adjacent datapoint from the same student.
+for (i in 2:nrow(clean_data)-1){
+  if (clean_data[i,5] > 12 && clean_data[i-1,2] == clean_data[i,2]){
+    clean_data[i,5] = clean_data[i-1,5]
+  }
+  else if (clean_data[i,5] > 12 && clean_data[i+1,2] == clean_data[i,2]){
+    clean_data[i,5] = clean_data[i+1,5]
+  }
+}
+
+# This line removes all non comma separators including periods, spaces, double commas, and backticks as well as leading and trailing commas.
+clean_data$Exercises = clean_data$Exercises %>% str_replace("^,", "") %>% str_replace_all(",$", "") %>% str_replace_all("\\`", "1") %>% str_replace_all("[:punct:]", ",") %>% str_replace_all("[:blank:]", ",") %>% str_replace_all(",,", ",")
+
+#This algorithm deletes every extra errant data points that have listed exercises above 30 (It's safer to delete these points than to assume we know what they are)
+invalid_points = c()
+
+for (i in 1:nrow(clean_data)){
+  exercises = clean_data[i,10]
+  is_invalid = FALSE
+  last_comma = 0
+  for (j in 1:nchar(exercises)){
+    if (substr(exercises, j, j) ==  ","){
+      q = substr(exercises, last_comma+1, j-1)
+      if (strtoi(substr(exercises, last_comma+1, j-1)) > 30){
+        is_invalid = TRUE
+      }
+      last_comma = j
+    }
+    if (j == nchar(exercises)){
+      if (strtoi(substr(exercises, last_comma+1, j)) > 30){
+        is_invalid = TRUE
+      }
+    }
+  }
+  if (is_invalid == TRUE){
+    invalid_points = append(invalid_points, clean_data[i, 10])
+  }
+}
+
+for (i in 1:length(invalid_points)){
+  clean_data = clean_data %>% filter(Exercises != invalid_points[i])
+}
+```
+
+# STAA57 Project Proposal 
+### Group 14 - Aditya Sandeep Kulkarni, Alec Larsen, Md Wasim Zaman, Vishal Deb Sahoo
+
+Link to the shared RStudio Cloud project that created this report:
+
+https://rstudio.cloud/spaces/115177/project/2210076
+
+### Analysis Plan
+
+With the data given and additional data on monthly air traffic, weather and seasons, the following questions will be adressed by our analysis:
+  
+##### How can scheduling be made the most efficient?
+We plan to suggest ways to enhance the quality and efficiency of scheduling training sessions by gauging patterns in the efficiency of instructors, duration between two sessions, the density of student enrollment every month, and student performance per season. The efficiency of instructors is assessed based on the average number of exercises students completed while being trained by each instructor. The density of student enrollment was estimated using the number of sessions that took place per month. The student performance was calculated based on the number of exercises completed by a student in a given time frame per session. All of these metrics indicate patterns that could help us increase the efficiency of scheduling sessions. Above results could also be used to optimize the recruitment of instructors with regards to the density of sessions per season.
+  
+##### What are the optimal conditions for student success?
+Our goal is to identify the conditions during training sessions that impact and, in turn, lead to student success. We consider a milestone like the first solo flight of 
+the student as the factor expressing student training success. We account for a diverse array of metrics such as the number of exercises per hour of training, the 
+weather and seasons during training sessions, the change in student performance for each instructor, the number of sessions required for the student to complete a
+milestone, most efficient training type, duration of particular exercises like dual flights, completion of a common set of exercises, comparison of students who didn't
+achieve particular milestones, etc.
+
+In summary, our analysis plan is dependent on determining correlations between multiple important and controllable factors in the training process. We will do this by using data analysis tools such as graphs and linear regression to determine whether one factor of the training process impacts performance and if so, what the impact of that factor is.
+
+### Data
+
+In answering these questions, we made the assumption in analyzing our data that all students begin their training at the same skill level. Additionally, we assume there were
+no unmeasurable external factors impacting the duration or efficiency of sessions. That is to say, unless a factor can be measured, it cannot be accounted for in our
+analysis.
+
+To help determine when air traffic is the lowest, and thus flight accident risk is the lowest, we acquired air traffic data from the suggested supplementary data.\
+Air Traffic - https://open.canada.ca/data/en/dataset/b91772ed-edae-4fd4-8b80-a3e4c1d29976
+
+We will utilise information in the following variables for observations of air traffic in Airports of Oshawa, Ontario for years 2015-2020:
+
+- REF_DATE: Date of Reference provided in character "YYYY-MM" format which we will separate to two columns of type integer "Year" and "Month".\
+- `Civil and military movements`: Description of the air traffic.\
+- VALUE: The number of aiplanes.\
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.height = 4}
+air_movements <- read_csv("data/Aircraft_Movements.csv") %>% 
+  filter( Airports == "Oshawa, Ontario",  str_detect(REF_DATE, "2015|2016|2017|2018|2019|2020") ) %>% 
+  select( REF_DATE, `Civil and military movements`, VALUE) %>%
+  separate(REF_DATE, c("Year", "Month"), sep = "-") %>% 
+  mutate(Year = as.integer(Year), Month = as.integer(Month))
+```
+
+To determine when flying is the safest (lowest wind, lowest precipitation), we used weather data from Government Of Canada's Website.\
+Weather data - https://climate.weather.gc.ca/historical_data/search_historic_data_e.html
+
+We will utilise information in the following variables:
+Year, Month, Day, `Max Temp (°C)`, `Min Temp (°C)`, `Mean Temp (°C)`, `Total Precip (mm)`, `Spd of Max Gust (km/h)`
+
+```{r,  echo=FALSE, warning=FALSE, message=FALSE, fig.height = 4}
+read_csv("data/en_climate_daily_ON_6155875_2015_P1D.csv", 
+         col_types = cols(Year = col_integer(), Month = col_integer(), Day = col_integer())) %>% 
+  select(Year, Month, Day, `Max Temp (°C)`, `Min Temp (°C)`, `Mean Temp (°C)`, `Total Precip (mm)`, `Spd of Max Gust (km/h)`) -> weather
+
+for(i in 2016:2020) {
+  loc = c("data/en_climate_daily_ON_6155875_", as.character(i), "_P1D.csv")
+  read_csv(str_c(loc, collapse = ""),
+           col_types = cols(Year = col_integer(), Month = col_integer(), Day = col_integer(),
+                            `Spd of Max Gust (km/h)` = col_character())) %>% 
+    select(Year, Month, Day, `Max Temp (°C)`, `Min Temp (°C)`, `Mean Temp (°C)`, `Total Precip (mm)`, `Spd of Max Gust (km/h)`) %>% union(weather) -> weather }
+```
+
+### Preliminary Analysis
+
+To suggest ways to improve scheduling we begin by understanding the current scheduling patterns.
+We graphed seasons against the total number of sessions conducted.
+
+``` {r, echo=FALSE, warnings=FALSE, fig.height = 4}
+# Creating seasons_four table
+seasons_four <- tibble(Month = 1:12, Season = c(rep("Winter", 2), rep("Spring", 3), rep("Summer", 3), rep("Fall", 3), "Winter"))
+
+# Graphing Seasons against Number Of Sessions
+clean_data %>% inner_join(seasons_four, by = c("Month")) %>% group_by(Season) %>% summarise(Sessions = n_distinct(Session_ID)) %>% 
+  ggplot(aes(x = Season, y = Sessions)) + geom_bar(stat = "identity") + ggtitle("Seasons vs Total Number Of Sessions") + 
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+This graph clearly displays that the number of sessions conducted differed greatly from season to season with Summer being favoured the most. This suggests that either Summer presented better conditions for flying and hence for training sessions or it drew more customers or both.
+
+To properly establish the  most efficient method of training students, first we must establish a measure of efficiency. By graphing exercises completed in each individual session, we determined that on a session by session basis, the exercises completed cannot be related to the duration of the session. However, by graphing the total session hours completed against the total exercises completed under each instructors supervision, we found that there is a significant correlation between training time and the number of exercises completed in the long term.
+
+```{r, echo=FALSE, warnings=FALSE, fig.height = 4}
+new_clean_data = clean_data %>% mutate(Exercise_Count = str_count(Exercises, ',') + 1, Date = as.Date(ISOdate(Year, Month, Day)))
+
+# Graphing Information on Instructors
+Instructor_Data = new_clean_data %>% group_by(Instructor_ID) %>% summarise(Total_Hours = sum(Duration), Total_Exercises = sum(Exercise_Count), Hourly_Exercises = Total_Exercises/Total_Hours, Years_Worked = as.numeric(max(Date)- min(Date))/365.25, Average_Hours = (sum(Duration)/Years_Worked))
+
+# Graph total hours against total exercises students completed under each instructor (with line of best fit and r value
+Coeftext = paste("r =" , toString(cor(Instructor_Data %>% select(Total_Hours), Instructor_Data %>% select(Total_Exercises), method = c("pearson"))[1][1]))
+ggplot(data = Instructor_Data, aes(x = Total_Hours, y = Total_Exercises)) + geom_point()  +
+  geom_smooth(method='lm', formula= y~x, se = FALSE)+  geom_text(aes(x = 250, y = 300), label = Coeftext) +
+  ggtitle("Hours of Instruction by Instructors vs Total Exercises Students Completed")
+```
+
+Since both Total Hours and Total Exercises are roughly continuous, we can use calculate Pearson's Linear Correlation Coefficient.
+We found that r ~ 0.98, which shows strong positive correlation between the variables. Given this, we concluded that for analysis spanning several months or years, the number of exercises completed per hour is a reliable efficiency metric.
+
+From this efficiency metric, we graphed the average hours each instructor worked per year against the average number of exercises students completed per hour.
+
+``` {r, echo=FALSE, warnings=FALSE, fig.height = 4, fig.width=7.5}
+ggplot(data = Instructor_Data, mapping = aes(x = Average_Hours, y = Hourly_Exercises)) + geom_point() + geom_text(aes(x = Average_Hours, y = Hourly_Exercises, label = Instructor_ID, hjust = 0), nudge_x = 1) + geom_smooth(method = 'lm', formula = y~x, se = FALSE) + ggtitle("Average Hours Instructed per Year vs Average Hourly Exercises Students Completed")
+```
+
+This graph clearly shows no clear correlation between average yearly hours worked and the exercises completed per hour by students. This lead us to conclude that instructors do not necessarily get better the more frequently they teach, but rather that some instructors are more effective than others. The line of best fit on this graph is not to show correlation but rather to plot the expected hours that each instructor should get based on their efficiency. Points above the line are, by our metric getting too few hours and instructors below the line are being scheduled for too many hours.
+
+Given a significant difference between training activity between seasons and a fairly reliable efficiency metric, we graphed seasons against the efficiency of an arbitrary student (Student_ID = 93).
+
+``` {r, echo=FALSE, warnings=FALSE, fig.height = 4} 
+# Graphing Seasons against Efficiency of Student 93.
+clean_data %>% inner_join(seasons_four, by = c("Month")) %>% mutate(numEx = str_count(Exercises, ",") + 1, Efficiency = numEx/Duration) %>% 
+  filter(Student_ID==93) %>% group_by(Season) %>% summarise(Efficiency = mean(Efficiency, na.rm = T)) %>% ggplot(aes(x=Season, y=Efficiency)) + 
+  geom_bar(stat="identity") + ggtitle("Seasons vs Efficiency Of Student 93") + theme(plot.title = element_text(hjust = 0.5))
+```
+From this graph, we can infer that student's performance differed from season to season.
+
+We graphed speed of maximum gust against the number of sessions.
+
+``` {r, echo=FALSE, warnings=FALSE, fig.height = 4}
+weather %>% drop_na(`Spd of Max Gust (km/h)`) %>% inner_join(clean_data, by = c("Year", "Month", "Day")) %>% ggplot(aes(x=`Spd of Max Gust (km/h)`)) + 
+geom_bar(stat="count") + labs(y = "Number of Sessions") + ggtitle("Speed Of Maximum Gust (km/h) vs Number Of Sessions") + 
+theme(plot.title = element_text(hjust = 0.5))
+```
+
+This graph suggets that in general the num of sessions conducted decreases with increase in speed of maximum gust.
+
+To establish that flying solo can be considered to be a metric for students progress we found the mean number of exercises completed by students that flew solo including the exercises performed during first solo flight(a) and also the mean number of exercises completed by students that never flew solo(b).
+
+``` {r, echo=FALSE, warnings=FALSE, fig.height = 4}
+y = as.data.frame(clean_data %>% unite("Date", c(Year, Month, Day), sep = "-") %>% 
+  mutate(Date = as.Date(Date), numEx = str_count(Exercises, ",") + 1) %>% 
+  group_by(Student_ID) %>% arrange(Student_ID, Date) %>% 
+  mutate(totalEx = cumsum(numEx)) %>% 
+  select( Student_ID, Training_Type, Date, totalEx ) %>% 
+  mutate( solo_flight = str_detect(Training_Type, "solo" ) ) %>% 
+  filter( solo_flight ) %>% slice(1) %>% 
+  select(Student_ID, totalEx) %>% 
+  ungroup() %>% 
+  summarise( `Flew Solo` = mean(totalEx) ))
+print(paste("mean (a)= ",toString(as.double(y[1][1]))))
+```
+
+``` {r, echo=FALSE, warnings=FALSE, fig.height = 4} 
+x = as.data.frame(clean_data %>% unite("Date", c(Year, Month, Day), sep = "-") %>% 
+  mutate(Date = as.Date(Date), numEx = str_count(Exercises, ",") + 1) %>% 
+  group_by(Student_ID) %>% arrange(Student_ID, Date) %>% 
+  mutate(totalEx = cumsum(numEx)) %>% 
+  select( Student_ID, Training_Type, Date, totalEx ) %>% 
+  mutate( solo_flight = !str_detect(Training_Type, "solo" ) ) %>% 
+  filter( solo_flight ) %>% arrange(desc(Date)) %>% slice(1) %>% 
+  select(Student_ID, totalEx) %>% 
+  anti_join(clean_data %>% unite("Date", c(Year, Month, Day), sep = "-") %>% 
+              mutate(Date = as.Date(Date)) %>%
+              group_by(Student_ID) %>% arrange(Student_ID, Date) %>% 
+              select( Student_ID, Training_Type, Date ) %>% 
+              mutate( solo_flight = str_detect(Training_Type, "solo" ) ) %>% 
+              filter( solo_flight ) %>% slice(1) %>% 
+              select(Student_ID), by = "Student_ID") %>% 
+  ungroup() %>% 
+  summarise( `Never Flew Solo` = mean(totalEx) ))
+print(paste("mean (b)= ",toString(as.double(x[1][1]))))
+```
+
+We note that the mean number of exercises completed by students that flew solo is more than twice the mean number of exercises completed by students that never flew solo which suggests that there might be a certain level of experience or progress that a student must achieve before they fly solo.

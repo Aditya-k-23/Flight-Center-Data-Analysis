@@ -1,0 +1,121 @@
+---
+title: "Scheduling"
+author: "Aditya Kulkarni"
+date: "12 March 2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## imports
+```{r}
+library(tidyverse)
+library(lubridate)
+library(readr)
+
+climate_daily <- read_csv("data/Additional data/climate-daily.csv")
+View(climate_daily)
+
+air_movements <- read_csv("data/Additional data/Canada Air Traffic data.csv")
+View(air_movements)
+
+clean_data <- read_csv("data/Additional data/clean_data_sta_with_season.csv")
+View(clean_data)
+
+seasons_four <- tibble(
+  Month = 1:12,
+  Season = c(rep("Winter", 2), rep("Spring", 3), rep("Summer", 3), rep("Fall", 3), "Winter")
+)
+```
+
+## Using Variables
+We will utilise information in the following variables: Year, Month, Day, MAX_TEMPERATURE, MIN_TEMPERATURE, MEAN_TEMPERATURE, HEATING_DEGREE_DAYS, COOLING_DEGREE_DAYS, TOTAL_PRECIPITATION, SPEED_MAX_GUST
+
+
+## Creating Weather data set
+```{r echo=FALSE, cache=FALSE, results=FALSE, warning=FALSE, comment=FALSE}
+read_csv("data/Additional data/climate-daily.csv", 
+         col_types = cols(Year = col_integer(), Month = col_integer(), Day = col_integer())) %>% 
+  select(Year, Month, Day, `MAX_TEMPERATURE`, `MIN_TEMPERATURE`, `MEAN_TEMPERATURE`, `HEATING_DEGREE_DAYS`,
+         `COOLING_DEGREE_DAYS`, `TOTAL_PRECIPITATION`, `SPEED_MAX_GUST`) -> weather
+```
+
+##Creating Month vs precipitation graph
+```{r}
+weather%>%
+  drop_na(`TOTAL_PRECIPITATION`) %>%
+  filter(Year!="2010" & Year!="2020" ) %>%
+  mutate(Month = month(Month, label = T))%>%
+  select(TOTAL_PRECIPITATION, Month)%>%
+  ggplot(aes(x=Month, y=TOTAL_PRECIPITATION)) + geom_bar(stat = "identity")+
+  ggtitle("Month vs TOTAL_PRECIPITATION") + 
+  theme(plot.title = element_text(hjust = 0.5))
+```
+##Number of sessions vs Mean temperature
+```{r}
+```
+## Creating Month vs Max Gust plot
+```{r echo=FALSE, cache=FALSE, results=FALSE, warning=FALSE, comment=FALSE}
+weather%>%
+  drop_na(`SPEED_MAX_GUST`) %>%
+    filter(Year!="2010" & Year!="2020" ) %>%
+  mutate(Month = month(Month, label = T))%>%
+  select(SPEED_MAX_GUST, Month)%>%
+  ggplot(aes(x=Month, y=SPEED_MAX_GUST)) + geom_bar(stat = "identity")
+
+```
+
+The data comparing the Maximum speed of gust to the month of a year over past 5 years shows a trend line steadily increasing from January to March then decreasing from March to the least in July. An increase is then observed from August to December. 
+
+# Graphing Months against Number Of Sessions
+```{r echo=FALSE, cache=FALSE, results=FALSE, warning=FALSE, comment=FALSE}
+clean_data %>%
+  filter(Year!="2020" & Year!="2015")%>%
+  mutate(Month = month(Month, label = T))%>%
+  group_by(Month) %>% 
+  summarise(Sessions = n_distinct(Session_ID)) %>% 
+  ggplot(aes(x = Month, y = Sessions)) + geom_bar(stat = "identity") + ggtitle("Month vs Total Number Of Sessions") + 
+  theme(plot.title = element_text(hjust = 0.5))
+```
+The Sessions conducted per month for the given date range suggest that the demand for sessions is least in the month of April from where it starts rising and reaches its maximum in August. There is a syeady increase from August upto April. The rate of decrease in demand increases and becomes steady as we move through the year upto december.
+
+##Air Traffic data variables
+We utilise the following variables from air traffic data: Month, Value
+## Aircraft Traffic
+```{r echo=FALSE, cache=FALSE, results=FALSE, warning=FALSE, comment=FALSE}
+# air_movements %>%
+#   filter( Airports == "Oshawa, Ontario",  str_detect(REF_DATE, "2015|2016|2017|2018|2019|2020") ) %>%
+#   select( REF_DATE, `Civil and military movements`, VALUE) -> air_movements
+# 
+air_movements %>%
+  separate(REF_DATE, c("Year", "Month"), sep = "-") %>%
+  mutate(Year = as.integer(Year), Month = as.integer(Month)) -> air_movements
+
+air_movements %>%
+  inner_join(seasons_four, by = c("Month"))%>%
+  rename(movement_type = 'Civil and military movements' )%>%
+   filter(movement_type == 'Total civil movements' | movement_type == 'Total military movements') ->
+seasonal_air_movements
+  
+#Comparing air traffic for external data
+seasonal_air_movements %>%
+  filter(Year == "2019")%>%
+  group_by(Month, movement_type)%>%
+  mutate(Month = month(Month, label = T))%>%
+  ggplot(aes(x = Month, y = VALUE)) + geom_col(aes(fill = movement_type))
+```
+The Airtraffic per month also has a steady trend with the maximum in July and a gardual decrease till December. There is an increase from January uptil July.
+## Gust vs Number of Sessions
+``` {r, echo=FALSE, warnings=FALSE, cache=FALSE, results=FALSE, comment=FALSE, fig.height = 4}
+weather %>% 
+  mutate(SPEED_MAX_GUST = replace(SPEED_MAX_GUST, SPEED_MAX_GUST<32, 32))%>%
+  drop_na(SPEED_MAX_GUST) %>%
+  inner_join(clean_data, by = c("Year", "Month", "Day")) %>%
+  ggplot(aes(x=SPEED_MAX_GUST)) + 
+  geom_point(stat="count") + labs(y = "Number of Sessions") +
+  ggtitle("Speed Of Maximum Gust (km/h) vs Number Of Sessions") + theme(plot.title = element_text(hjust = 0.5))
+
+```
+The above plot suggests that as the speed of gust increases, the Number of sessions being conducted decrease which follows the logical reasoning.
