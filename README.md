@@ -1,6 +1,6 @@
 # Flight-Center-Data-Analysis
 We analyzed the data provided by the Durham Flight Center along with external data obtained from credible sources to create a report answering questions related to efficiency and scheduling.
-The project is a result of joint efforts put in by the Collaborators as mentioned in the final report.
+The project is a result of joint efforts put in by the Collaborators as mentioned in the final report. This was a project done for credit in the STAA57 Course at the University of Toronto Scarborough.
 
 ## Analysis Plan
 With the data given and additional data on monthly air traffic, weather and seasons, the following questions
